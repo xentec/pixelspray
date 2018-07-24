@@ -1,0 +1,13 @@
+[package]
+name = "pixelspray"
+version = "0.1.0"
+authors = ["xentec <xentec@aix0.eu>"]
+
+[dependencies]
+structopt = "0.2"
+image = { version = "0.19", features = [ "jpeg", "png" ] }
+rayon = "1"
+rand = "0.5"
+
+[profile.release]
+lto = true
