@@ -1,13 +1,21 @@
 [package]
 name = "pixelspray"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["xentec <xentec@aix0.eu>"]
+edition = "2018"
 
 [dependencies]
-structopt = "0.2"
-image = { version = "0.19", features = [ "jpeg", "png" ] }
+image = { version = "0.22", default-features = false, features = [ "jpeg", "png" ] }
+r2d2 = "0.8"
 rayon = "1"
-rand = "0.5"
+
+rand = "0.7"
+structopt = "0.3"
+clap = "2"
+chrono = "0.4"
+log = "0.4"
+env_logger = "0.7"
 
 [profile.release]
 lto = true
+debug = 1
