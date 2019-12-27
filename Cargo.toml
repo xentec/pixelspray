@@ -1,20 +1,22 @@
 [package]
 name = "pixelspray"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["xentec <xentec@aix0.eu>"]
 edition = "2018"
 
 [dependencies]
-image = { version = "0.22", default-features = false, features = [ "jpeg", "png" ] }
-r2d2 = "0.8"
-rayon = "1"
+futures = "^0.3"
+tokio = { version = "^0.2", features = [ "io-util", "rt-threaded", "signal", "stream", "tcp" ] }
+tokio-util = { version = "^0.2", features = ["codec"]}
+image = { version = "0.23.0-preview.0", default-features = false, features = [ "jpeg", "png", "png_codec", "webp" ] }
+
+clap = "2"
+structopt = "0.3"
 
 rand = "0.7"
-structopt = "0.3"
-clap = "2"
 chrono = "0.4"
-log = "0.4"
-env_logger = "0.7"
+log = { version = "^0.4", features = ["release_max_level_info"] }
+env_logger = { version = "^0.7", default-features = false, features = ["termcolor","atty","humantime"] }
 
 [profile.release]
 lto = true
