@@ -64,6 +64,15 @@ struct Opt
 	#[structopt(long = "filter-color", default_value="255")]
 	color: u8,
 
+	/// Mirror image
+	#[structopt(long)]
+	mirror: bool,
+
+	/// Mirror image
+	#[structopt(long)]
+	mirror_v: bool,
+
+
 	/// Disable offset option
 	#[structopt(long = "no-offset")]
 	no_offset: bool,
@@ -100,6 +109,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>>
 async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 {
 	let mut image = image::open(&opt.image)?;
+	if opt.mirror_v {
+		image = image::DynamicImage::ImageRgba8(image::imageops::flip_horizontal(&image));
+	}
+	if opt.mirror {
+		image = image::DynamicImage::ImageRgba8(image::imageops::flip_vertical(&image));
+	}
 
 	log::info!("connecting to {}...", opt.host);
 
