@@ -52,6 +52,10 @@ struct Opt
 	#[structopt(short = "r")]
 	resize: Option<String>,
 
+	/// Resize image
+	#[structopt(short = "o")]
+	offset: Option<String>,
+
 	/// Filter to use
 	#[structopt(short = "f", default_value="RGBA")]
 	filter: Filter,
@@ -63,6 +67,14 @@ struct Opt
 	/// Disable offset option
 	#[structopt(long = "no-offset")]
 	no_offset: bool,
+
+	/// Do not compact pixels
+	#[structopt(short = "l", long)]
+	lossless: bool,
+
+	/// Do not compact pixels
+	#[structopt(short = "c", long)]
+	same_ch_opt: bool
 }
 
 
@@ -113,19 +125,31 @@ async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 	};
 	std::mem::drop(stream);
 
+	let (w,h) = image.dimensions();
+
 	if let Some(resize) = opt.resize.as_ref() {
 		let mut i = resize.split('x').map(|s| u32::from_str(s).unwrap());
 		let w = i.next().unwrap();
 		let h = i.next().unwrap();
 		image = image.resize(w, h, image::imageops::FilterType::Lanczos3);
+	} else if  w > sw || h > sh {
+		image = image.resize(sw, sh, image::imageops::FilterType::Lanczos3);
 	}
+
+	let (w,h) = image.dimensions();
+
+	let (xoff,yoff) = if let Some(offset) = opt.offset.as_ref() {
+		let mut i = offset.split('x').map(|s| u32::from_str(s).unwrap());
+		let x = i.next().unwrap();
+		let y = i.next().unwrap();
+		(x, y)
+	} else {
+		(sw-w, sh-h)
+	};
 
 	//image = image.resize(256, 256, image::FilterType::Nearest);
 	//image = image.grayscale();
 
-	let (w,h) = image.dimensions();
-
-	let (xoff,yoff) = ((sw-w), sh-h);
 	log::info!("screen: {}x{} image: {}x{} offset: {}x{}", sw, sh, w, h, xoff, yoff);
 
 	let mut pxls = image.pixels()
@@ -133,21 +157,39 @@ async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 		{
 			let (_x, _y, color) = pixel;
 			let (_r,_g,_b,a) = color.channels4();
-			a > 5
+			if opt.lossless { a != 0 } else { a > 0xf }
 		})
 		.map(|(mut x, mut y, color)| {
 
-			let (r,g,b,a) = color.channels4();
-			let ch = color.channels().len();
+			let (mut r,g,b,a) = color.to_rgba().channels4();
+			let mut ch = color.channels().len();
 
 			if opt.no_offset {
 				x += xoff;
 				y += yoff;
 			}
 
+			if ch > 3 && a == 0xff {
+				ch = 3;
+			}
+
 			let mut filter = opt.filter;
-			if filter != Filter::Mask && r == g && g == b {
-				filter = Filter::Grey;
+			if opt.same_ch_opt {
+				if filter != Filter::Mask {
+					if opt.lossless {
+						if r == g && g == b {
+							filter = Filter::Grey;
+						}
+					} else {
+						let rg = (r as i32 - g as i32).abs();
+						let gb  = (g as i32 - b as i32).abs();
+						let br  = (b as i32 - r as i32).abs();
+						if *[rg, gb, br].iter().max().unwrap() <= 4 {
+							r = ((r as usize + g as usize + b as usize) / 3) as u8;
+							filter = Filter::Grey;
+						}
+					}
+				}
 			}
 
 			match filter
