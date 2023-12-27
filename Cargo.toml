@@ -6,16 +6,18 @@ edition = "2018"
 
 [dependencies]
 futures = "^0.3"
-tokio = { version = "^1.21", features = [ "rt-multi-thread", "io-util", "signal", "sync", "net" ] }
+tokio = { version = "^1.29", features = [ "rt-multi-thread", "io-util", "signal", "sync", "net" ] }
 tokio-util = { version = "^0.7", features = ["codec"] }
 image = { version = "^0.24", default-features = false, features = [ "jpeg", "png", "webp" ] }
-
-clap = { version = "^4", default-features = false, features = ["std", "derive", "cargo"] }
+clap = { version = "^4.4", default-features = false, features = ["std", "derive", "cargo", "error-context", "help"] }
 
 rand = "^0.8"
 chrono = "^0.4"
-log = { version = "^0.4", features = ["release_max_level_info"] }
-env_logger = { version = "^0.9", default-features = false, features = ["termcolor","atty","humantime"] }
+anyhow = "1.0.77"
+
+tracing = { version = "^0.1", features = ["log", "release_max_level_debug"] }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
 
 [profile.release]
 lto = "thin"

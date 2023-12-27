@@ -4,6 +4,8 @@ use std::{
 	sync::Arc, convert::TryInto,
 };
 
+use anyhow::Context;
+use chrono::offset;
 use image::{Pixel, GenericImageView};
 use rand::seq::SliceRandom;
 
@@ -19,58 +21,60 @@ use tokio::{*,
 };
 use tokio_util::codec::Decoder;
 
-use log;
+use tracing as log;
+
 
 #[derive(Parser, Debug)]
+#[clap(about, version)]
 struct Opt
 {
 	/// The host to connect to
-	#[clap()]
+	#[arg()]
 	host: std::net::SocketAddr,
 
 	/// Number of connections
-	#[clap(short = 'n', default_value_t = 8)]
+	#[arg(short = 'n', default_value_t = 8)]
 	num: usize,
 
 	/// Image to spray
-	#[clap(value_parser)]
+	#[arg(value_parser)]
 	image: PathBuf,
 
 	/// Resize image
-	#[clap(short = 'r')]
+	#[arg(short = 'r')]
 	resize: Option<String>,
 
 	/// Resize image
-	#[clap(short = 'o')]
+	#[arg(short = 'o')]
 	offset: Option<String>,
 
 	/// Filter to use
-	#[clap(short = 'f', default_value="RGBA")]
+	#[arg(short = 'f', default_value="rgba")]
 	filter: Filter,
 
 	/// Use a single color mask
-	#[clap(long = "filter-color", default_value_t=255)]
+	#[arg(long = "filter-color", default_value_t=255)]
 	color: u8,
 
 	/// Mirror image
-	#[clap(long)]
+	#[arg(long)]
 	mirror: bool,
 
 	/// Mirror image
-	#[clap(long)]
+	#[arg(long)]
 	mirror_v: bool,
 
 
 	/// Disable offset option
-	#[clap(long = "no-offset")]
+	#[arg(long = "no-offset")]
 	no_offset: bool,
 
 	/// Do not compact pixels
-	#[clap(short = 'l', long)]
+	#[arg(short = 'l', long)]
 	lossless: bool,
 
 	/// Do not compact pixels
-	#[clap(short = 'c', long)]
+	#[arg(short = 'c', long)]
 	same_ch_opt: bool
 }
 
@@ -84,9 +88,15 @@ enum Filter
 
 fn main() -> Result<(), Box<dyn std::error::Error>>
 {
-	env_logger::Builder::from_default_env()
-		.format_timestamp_millis()
-		.filter_level(log::LevelFilter::Debug)
+	// Logging system init
+	tracing_subscriber::fmt()
+		.with_env_filter(
+			tracing_subscriber::EnvFilter::from_default_env()
+				.add_directive(tracing_subscriber::filter::LevelFilter::DEBUG.into())
+				.add_directive("pixelspray=debug".parse()?)
+				//.add_directive("hyper=trace".parse()?)
+		)
+		.compact()
 		.init();
 
 	let opt = Opt::parse();
@@ -130,6 +140,8 @@ async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 		},
 		None => (1024, 768),
 	};
+	let mut stream = stream.into_inner();
+	stream.shutdown().await.ok();
 	std::mem::drop(stream);
 
 	let (w,h) = image.dimensions();
@@ -228,12 +240,15 @@ async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 		.into_iter().map(Arc::new)
 		.collect::<Vec<_>>();
 
+	let offset = (!opt.no_offset).then_some((xoff, yoff));
+
 	println!("Chunks: {} a {}", chunks.len(), chunk_len);
+	println!("Offset: {}", offset.map(|(x,y)| format!("{x}x{y}")).unwrap_or_default());
 
 	let mut tasks = futures::stream::FuturesUnordered::new();
 	let mut channels = std::collections::HashMap::new();
 	for id in 0..opt.num {
-		let (tx, task) = client(id, opt.host, (xoff, yoff));
+		let (tx, task) = client(id, opt.host, offset);
 		channels.insert(id, tx);
 		tasks.push(task);
 	}
@@ -271,13 +286,21 @@ async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 				break;
 			},
 			id = tasks.next() => {
-				if let Some(id) = id.and_then(|res| res.ok()).and_then(|res| res.ok()) {
-					log::info!("{}: respawning...", id);
-					let (tx, task) = client(id, opt.host, (xoff, yoff));
-					channels.lock().await.entry(id).and_modify(|v| *v = tx);
-					tasks.push(task);
-				} else {
-					break;
+				log::debug!("meh {:?}", id);
+				if let Some(Err(err)) = id {
+					continue;
+				}
+				match id {
+					None => break,
+					Some(Err(err)) => break,
+					Some(Ok(Ok(_))) => break,
+					Some(Ok(Err(err))) => break,
+					Some(Ok(Ok(id))) => {
+						log::info!("{}: respawning...", id);
+						let (tx, task) = client(id, opt.host, offset);
+						channels.lock().await.entry(id).and_modify(|v| *v = tx);
+						tasks.push(task);	
+					},
 				}
 			},
 		};
@@ -286,24 +309,28 @@ async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 	Ok(())
 }
 
-fn client(id: usize, host_addr: std::net::SocketAddr, offset: (u32, u32)) -> (sync::mpsc::Sender<Arc<String>>, task::JoinHandle<io::Result<usize>>) {
+fn client(id: usize, host_addr: std::net::SocketAddr, offset: Option<(u32, u32)>) -> (sync::mpsc::Sender<Arc<String>>, task::JoinHandle<anyhow::Result<usize>>) {
 	let (tx, mut rx) = sync::mpsc::channel::<Arc<String>>(4);
 
 	let task = spawn(async move {
-		let mut stream = net::TcpStream::connect(host_addr).await?;
+		let mut stream = net::TcpStream::connect(host_addr).await
+			.context("failed to connect")?;
 
 		log::info!("{}: connected...", id);
 		if let Err(err) = stream.set_nodelay(true) {
 			log::warn!("{}: failed to set no delay: {}", id, err);
 		}
 
-		let offset = format!("OFFSET {} {}\n", offset.0, offset.1);
-		stream.write_all(offset.as_bytes()).await?;
+		if let Some(offset) = offset {
+			let offset = format!("OFFSET {} {}\n", offset.0, offset.1);
+			stream.write_all(offset.as_bytes()).await
+				.context("failed to send offset")?;
+		}
 
 		while let Some(chunk) = rx.recv().await {
-			let buf = chunk.as_bytes();
-			//log::debug!("sending {} bytes", buf.len());
-			stream.write_all(buf).await?;
+			//log::debug!("sending {} bytes: {}...", chunk.len(), chunk.split_at(16).0);
+			stream.write_all(chunk.as_bytes()).await
+				.context("failed to send chunk")?;
 		}
 
 		Ok(id)
