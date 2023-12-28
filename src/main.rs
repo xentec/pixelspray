@@ -232,7 +232,7 @@ async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 
 	pxls.shuffle(&mut rand::thread_rng());
 
-	let chunk_len = 1480; //(pxls.len() + pxls.len() % opt.num) / opt.num;
+	let chunk_len = 1420; //(pxls.len() + pxls.len() % opt.num) / opt.num;
 
 	println!("Pixels: {}", pxls.len());
 	let chunks = pxls.into_iter()
