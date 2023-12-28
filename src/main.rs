@@ -158,12 +158,21 @@ async fn run(opt: Opt) -> Result<(), Box<dyn std::error::Error>>
 	let (w,h) = image.dimensions();
 
 	let (xoff,yoff) = if let Some(offset) = opt.offset.as_ref() {
-		let mut i = offset.split('x').map(|s| u32::from_str(s).unwrap());
-		let x = i.next().unwrap();
-		let y = i.next().unwrap();
-		(x, y)
+		let (xstr,ystr) = offset.split_once('x').unwrap();
+		//log::debug!("offsetp: {} x {}", xstr, ystr);
+		let x = match xstr {
+			"E" => sw-w,
+			"M" => (sw-w)/2,
+			_ => u32::from_str(xstr).unwrap(),	
+		};
+		let y = match ystr {
+			"E" => sh-h,
+			"M" => (sh-h)/2,
+			_ => u32::from_str(ystr).unwrap(),
+		};
+		(x,y)
 	} else {
-		(sw-w, sh-h)
+		(0,0)
 	};
 
 	//image = image.resize(256, 256, image::FilterType::Nearest);
